@@ -108,6 +108,8 @@ nebula::Status RobosenseRosWrapper::declare_and_get_sensor_config_params()
       declare_parameter<double>("dual_return_distance_threshold", descriptor);
   }
 
+  config.use_sensor_time = declare_parameter<bool>("use_sensor_time", param_read_write());
+
   auto new_cfg_ptr = std::make_shared<const nebula::drivers::RobosenseSensorConfiguration>(config);
   return validate_and_set_config(new_cfg_ptr);
 }

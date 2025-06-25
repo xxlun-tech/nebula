@@ -83,7 +83,7 @@ protected:
   /// @param n_blocks The number of returns in the group
   void convert_returns(size_t start_block_id, size_t n_blocks)
   {
-    uint64_t packet_timestamp_ns = robosense_packet::get_timestamp_ns(packet_);
+    uint64_t packet_timestamp_ns = robosense_packet::get_timestamp_ns(packet_, sensor_configuration_->use_sensor_time);
     uint32_t raw_azimuth = packet_.body.blocks[start_block_id].get_azimuth();
 
     std::vector<const typename SensorT::packet_t::body_t::block_t::unit_t *> return_units;
@@ -227,7 +227,7 @@ public:
     }
 
     if (decode_scan_timestamp_ns_ == 0) {
-      decode_scan_timestamp_ns_ = robosense_packet::get_timestamp_ns(packet_);
+      decode_scan_timestamp_ns_ = robosense_packet::get_timestamp_ns(packet_, sensor_configuration_->use_sensor_time);
     }
 
     if (has_scanned_) {
@@ -259,7 +259,7 @@ public:
         // calculated as the packet timestamp plus the lowest time offset of any point in the
         // remainder of the packet
         decode_scan_timestamp_ns_ =
-          robosense_packet::get_timestamp_ns(packet_) +
+          robosense_packet::get_timestamp_ns(packet_, sensor_configuration_->use_sensor_time) +
           sensor_.get_earliest_point_time_offset_for_block(block_id, sensor_configuration_);
       }
 

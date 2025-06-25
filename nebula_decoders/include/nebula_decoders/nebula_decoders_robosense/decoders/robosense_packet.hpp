@@ -238,15 +238,40 @@ inline size_t get_n_returns(ReturnMode return_mode)
   return 1;
 }
 
+inline uint64_t getTimeHost()
+{
+  std::chrono::system_clock::time_point t = std::chrono::system_clock::now();
+  std::chrono::system_clock::duration t_s = t.time_since_epoch();
+
+  std::chrono::duration<uint64_t, std::ratio<1l, 1000000l>> t_us =
+    std::chrono::duration_cast<std::chrono::duration<uint64_t, std::ratio<1l, 1000000l>>>(t_s);
+  return t_us.count();
+}
+
+inline uint64_t getTimeHostWithNs()
+{
+  std::chrono::system_clock::time_point t = std::chrono::system_clock::now();
+  std::chrono::system_clock::duration t_s = t.time_since_epoch();
+
+  std::chrono::duration<uint64_t, std::nano> t_ns =
+    std::chrono::duration_cast<std::chrono::duration<uint64_t, std::nano>>(t_s);
+  return t_ns.count();
+}
+
 /// @brief Get timestamp from packet in nanoseconds
 /// @tparam PacketT The packet type
 /// @param packet The packet to get the timestamp from
 /// @return The timestamp in nanoseconds
 template <typename PacketT>
-uint64_t get_timestamp_ns(const PacketT & packet)
+uint64_t get_timestamp_ns(const PacketT & packet, bool use_sensor_time)
 {
-  return packet.header.timestamp.get_time_in_ns();
+  if (use_sensor_time)
+  {
+    return packet.header.timestamp.get_time_in_ns();
+  }
+  return getTimeHostWithNs();
 }
+
 
 /// @brief Get the distance unit of the given packet type in meters. Distance values in the packet,
 /// multiplied by this value, yield the distance in meters.
