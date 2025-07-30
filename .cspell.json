@@ -5,6 +5,7 @@
   "words": [
     "adctp",
     "Adctp",
+    "Agnocast",
     "applicate",
     "AT",
     "autosar",
@@ -47,6 +48,7 @@
     "piyushk",
     "QT",
     "rclcpp",
+    "RCPPUTILS",
     "schedutil",
     "srvs",
     "STD_COUT",
@@ -55,6 +57,7 @@
     "structs",
     "TOLOWER",
     "UDP_SEQ",
+    "UNSYNCHRONIZED",
     "usec",
     "vccint",
     "Vccint",

@@ -17,7 +17,7 @@
 #include "nebula_ros/common/diagnostics/liveness_monitor.hpp"
 #include "nebula_ros/common/diagnostics/rate_bound_status.hpp"
 #include "nebula_ros/common/parameter_descriptors.hpp"
-#include "nebula_ros/common/watchdog_timer.hpp"
+#include "nebula_ros/common/sync_tooling/sync_tooling_worker.hpp"
 
 #include <diagnostic_updater/diagnostic_updater.hpp>
 #include <nebula_common/continental/continental_ars548.hpp>
@@ -25,6 +25,7 @@
 #include <nebula_common/util/expected.hpp>
 #include <nebula_decoders/nebula_decoders_continental/decoders/continental_ars548_decoder.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <rcpputils/thread_safety_annotations.hpp>
 
 #include <autoware_sensing_msgs/msg/radar_classification.hpp>
 #include <autoware_sensing_msgs/msg/radar_info.hpp>
@@ -42,8 +43,11 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <shared_mutex>
 #include <string>
 #include <tuple>
 #include <unordered_set>
@@ -51,6 +55,12 @@
 
 namespace nebula::ros
 {
+struct SyncToolingPlugin
+{
+  std::shared_ptr<SyncToolingWorker> worker;
+  util::RateLimiter rate_limiter;
+};
+
 class ContinentalARS548DecoderWrapper
 {
 public:
@@ -94,7 +104,8 @@ public:
 private:
   nebula::Status initialize_driver(
     const std::shared_ptr<
-      const nebula::drivers::continental_ars548::ContinentalARS548SensorConfiguration> & config);
+      const nebula::drivers::continental_ars548::ContinentalARS548SensorConfiguration> & config)
+    RCPPUTILS_TSA_REQUIRES(mtx_config_ptr_);
 
   // @brief Create a RadarInfo message for the ARS548 radar
   // @return RadarInfo message
@@ -117,6 +128,8 @@ private:
   /// @return Resulting RadarObjects msg
   autoware_sensing_msgs::msg::RadarObjects convert_to_autoware_radar_objects(
     const continental_msgs::msg::ContinentalArs548ObjectList & msg);
+
+  void initialize_sync_diagnostics(rclcpp::Node * parent_node);
 
   /// @brief Convert ARS548 detections to a pointcloud
   /// @param msg The ARS548 detection list msg
@@ -197,10 +210,13 @@ private:
   rclcpp::Node * const parent_node_;
 
   std::shared_ptr<const nebula::drivers::continental_ars548::ContinentalARS548SensorConfiguration>
-    config_ptr_{};
+    config_ptr_ RCPPUTILS_TSA_GUARDED_BY(mtx_config_ptr_);
 
-  std::shared_ptr<drivers::continental_ars548::ContinentalARS548Decoder> driver_ptr_{};
+  std::shared_ptr<drivers::continental_ars548::ContinentalARS548Decoder> driver_ptr_
+    RCPPUTILS_TSA_GUARDED_BY(mtx_driver_ptr_);
+
   std::mutex mtx_driver_ptr_;
+  std::shared_mutex mtx_config_ptr_;
 
   rclcpp::Publisher<nebula_msgs::msg::NebulaPackets>::SharedPtr packets_pub_{};
 
@@ -220,6 +236,8 @@ private:
   autoware_sensing_msgs::msg::RadarInfo radar_info_msg_{};
   std::size_t detection_msgs_counter_{0};
 
+  std::optional<SyncToolingPlugin> sync_tooling_plugin_;
+
   std::unordered_set<int> previous_ids_{};
 
   uint32_t latest_config_cycle_time_ms_{};
@@ -235,7 +253,5 @@ private:
      {{1.0, -1.0}},
      {{0.0, -1.0}},
      {{0.0, 0.0}}}};
-
-  std::shared_ptr<WatchdogTimer> watchdog_;
 };
 }  // namespace nebula::ros

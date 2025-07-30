@@ -29,6 +29,13 @@ find_package(robosense_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(sync_tooling_msgs REQUIRED)
+find_package(message_filters REQUIRED)
+find_package(agnocastlib)
+
+if(USE_AGNOCAST AND NOT agnocastlib_FOUND)
+    message(FATAL_ERROR "agnocastlib is required when USE_AGNOCAST is enabled")
+endif()
 
 include_directories(
     include
@@ -54,21 +61,31 @@ add_library(hesai_ros_wrapper SHARED
     src/common/parameter_descriptors.cpp
 )
 
+message(sync_tooling_msgs_INCLUDE_DIRS=${sync_tooling_msgs_INCLUDE_DIRS})
+message(sync_tooling_msgs_TARGETS=${sync_tooling_msgs_TARGETS})
+
 target_include_directories(hesai_ros_wrapper PUBLIC
     ${diagnostic_updater_INCLUDE_DIRS}
     ${nebula_decoders_INCLUDE_DIRS}
     ${nebula_hw_interfaces_INCLUDE_DIRS}
     ${pandar_msgs_INCLUDE_DIRS}
+    ${sync_tooling_msgs_INCLUDE_DIRS}
 )
 
 target_link_libraries(hesai_ros_wrapper PUBLIC
     ${diagnostic_msgs_TARGETS}
     ${diagnostic_updater_TARGETS}
     ${pandar_msgs_TARGETS}
+    ${sync_tooling_msgs_TARGETS}
     nebula_decoders::nebula_decoders_hesai
     nebula_hw_interfaces::nebula_hw_interfaces_hesai
 )
 
+if(USE_AGNOCAST)
+    target_include_directories(hesai_ros_wrapper PUBLIC ${agnocastlib_INCLUDE_DIRS})
+    target_link_libraries(hesai_ros_wrapper PUBLIC ${agnocastlib_LIBRARIES})
+    add_definitions(-DUSE_AGNOCAST_ENABLED)
+endif()
 
 rclcpp_components_register_node(hesai_ros_wrapper
         PLUGIN "HesaiRosWrapper"
@@ -158,6 +175,7 @@ target_include_directories(continental_ars548_ros_wrapper PUBLIC
     ${rclcpp_components_INCLUDE_DIRS}
     ${tf2_ros_INCLUDE_DIRS}
     ${visualization_msgs_INCLUDE_DIRS}
+    ${sync_tooling_msgs_INCLUDE_DIRS}
 )
 
 target_link_libraries(continental_ars548_ros_wrapper PUBLIC
@@ -171,6 +189,7 @@ target_link_libraries(continental_ars548_ros_wrapper PUBLIC
     ${radar_msgs_TARGETS}
     ${tf2_ros_TARGETS}
     ${visualization_msgs_TARGETS}
+    ${sync_tooling_msgs_TARGETS}
     nebula_decoders::nebula_decoders_continental
     nebula_hw_interfaces::nebula_hw_interfaces_continental
 )
@@ -200,6 +219,7 @@ target_include_directories(continental_srr520_ros_wrapper PUBLIC
     ${rclcpp_components_INCLUDE_DIRS}
     ${tf2_ros_INCLUDE_DIRS}
     ${visualization_msgs_INCLUDE_DIRS}
+    ${message_filters_INCLUDE_DIRS}
 )
 
 target_link_libraries(continental_srr520_ros_wrapper PUBLIC
@@ -211,6 +231,7 @@ target_link_libraries(continental_srr520_ros_wrapper PUBLIC
     ${radar_msgs_TARGETS}
     ${tf2_ros_TARGETS}
     ${visualization_msgs_TARGETS}
+    ${message_filters_TARGETS}
     nebula_decoders::nebula_decoders_continental
     nebula_hw_interfaces::nebula_hw_interfaces_continental
 )
@@ -230,8 +251,21 @@ install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
 if(BUILD_TESTING)
     find_package(ament_lint_auto REQUIRED)
     find_package(ros_testing REQUIRED)
+    find_package(ament_cmake_gtest REQUIRED)
+    find_package(rcpputils REQUIRED)
 
     ament_lint_auto_find_test_dependencies()
+
+    # Unit tests
+    ament_add_gtest(test_single_consumer_processor
+        test/test_single_consumer_processor.cpp
+    )
+    target_include_directories(test_single_consumer_processor
+        PRIVATE
+        include
+        SYSTEM
+        ${rcpputils_INCLUDE_DIRS}
+    )
 
     foreach(MODEL Pandar40P Pandar64 PandarQT64 PandarQT128 Pandar128E4X PandarAT128 PandarXT16 PandarXT32 PandarXT32M ARS548 SRR520 VLP16 VLP32 VLS128 Helios Bpearl)
         string(TOLOWER ${MODEL}_smoke_test test_name)
@@ -276,7 +310,13 @@ ament_export_dependencies(
     velodyne_msgs
     visualization_msgs
     yaml-cpp
+    message_filters
+    sync_tooling_msgs
 )
+
+if(USE_AGNOCAST)
+    ament_export_dependencies(agnocastlib)
+endif()
 
 ament_package()
 

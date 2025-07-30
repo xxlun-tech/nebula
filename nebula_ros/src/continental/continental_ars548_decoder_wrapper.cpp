@@ -14,13 +14,18 @@
 
 #include "nebula_ros/continental/continental_ars548_decoder_wrapper.hpp"
 
+#include "nebula_ros/common/sync_tooling/sync_tooling_worker.hpp"
+
 #include <nebula_common/util/string_conversions.hpp>
 
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <algorithm>
+#include <chrono>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -61,6 +66,8 @@ ContinentalARS548DecoderWrapper::ContinentalARS548DecoderWrapper(
   if (Status::OK != status_) {
     throw std::runtime_error("Error instantiating decoder: " + util::to_string(status_));
   }
+
+  initialize_sync_diagnostics(parent_node);
 
   // Publish packets only if HW interface is connected
   if (launch_hw) {
@@ -114,12 +121,6 @@ ContinentalARS548DecoderWrapper::ContinentalARS548DecoderWrapper(
   detections_diagnostics_updater_.force_update();
   liveness_diagnostics_updater_.force_update();
 
-  watchdog_ =
-    std::make_shared<WatchdogTimer>(*parent_node, 100'000us, [this, parent_node](bool ok) {
-      if (ok) return;
-      RCLCPP_WARN_THROTTLE(logger_, *parent_node->get_clock(), 5000, "Missed output deadline");
-    });
-
   create_radar_info();
 }
 
@@ -144,12 +145,43 @@ Status ContinentalARS548DecoderWrapper::initialize_driver(
   return Status::OK;
 }
 
+void ContinentalARS548DecoderWrapper::initialize_sync_diagnostics(rclcpp::Node * const parent_node)
+{
+  std::scoped_lock lock(mtx_config_ptr_, mtx_driver_ptr_);
+  if (!config_ptr_->sync_diagnostics_topic) {
+    return;
+  }
+
+  // ARS548 does not document any domain ID settings, so the default domain 0 is hardcoded.
+  // ARS548 is known working with domain 0.
+  sync_tooling_plugin_.emplace(
+    SyncToolingPlugin{
+      std::make_shared<SyncToolingWorker>(
+        parent_node, *config_ptr_->sync_diagnostics_topic, config_ptr_->frame_id, 0),
+      util::RateLimiter(100ms)});
+
+  driver_ptr_->register_sync_status_callback(
+    [this](uint64_t receive_time_ns, uint64_t packet_time_ns, bool sync_ok) {
+      sync_tooling_plugin_->rate_limiter.with_rate_limit(
+        receive_time_ns, [this, receive_time_ns, packet_time_ns, sync_ok]() {
+          int64_t clock_diff =
+            static_cast<int64_t>(receive_time_ns) - static_cast<int64_t>(packet_time_ns);
+
+          sync_tooling_plugin_->worker->submit_self_reported_clock_state(
+            sync_ok ? SelfReportedClockStateUpdate::LOCKED
+                    : SelfReportedClockStateUpdate::UNSYNCHRONIZED);
+
+          sync_tooling_plugin_->worker->submit_clock_diff_measurement(clock_diff);
+        });
+    });
+}
+
 void ContinentalARS548DecoderWrapper::on_config_change(
   const std::shared_ptr<
     const nebula::drivers::continental_ars548::ContinentalARS548SensorConfiguration> &
     new_config_ptr)
 {
-  std::lock_guard lock(mtx_driver_ptr_);
+  std::scoped_lock lock(mtx_config_ptr_, mtx_driver_ptr_);
   initialize_driver(new_config_ptr);
   config_ptr_ = new_config_ptr;
 }
@@ -157,10 +189,10 @@ void ContinentalARS548DecoderWrapper::on_config_change(
 void ContinentalARS548DecoderWrapper::process_packet(
   std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
 {
+  std::lock_guard lock(mtx_driver_ptr_);
   driver_ptr_->process_packet(std::move(packet_msg));
 
   liveness_monitor_.tick();
-  watchdog_->update();
 }
 
 void ContinentalARS548DecoderWrapper::detection_list_callback(
@@ -191,6 +223,7 @@ void ContinentalARS548DecoderWrapper::detection_list_callback(
     detection_list_pub_->publish(std::move(msg));
   }
 
+  std::shared_lock lock_cfg(mtx_config_ptr_);
   if (
     detection_msgs_counter_ % config_ptr_->radar_info_rate_subsample == 0 &&
     (radar_info_pub_->get_subscription_count() > 0 ||
@@ -293,6 +326,7 @@ void ContinentalARS548DecoderWrapper::sensor_status_callback(
   add_diagnostic(
     dynamics_diagnostic_status, "Driving direction status", sensor_status.driving_direction_status);
 
+  std::shared_lock lock_cfg(mtx_config_ptr_);
   dynamics_diagnostic_status.hardware_id = config_ptr_->frame_id;
   dynamics_diagnostic_status.name =
     std::string(parent_node_->get_fully_qualified_name()) + ": Dynamics";
@@ -346,6 +380,7 @@ void ContinentalARS548DecoderWrapper::packets_callback(
 void ContinentalARS548DecoderWrapper::create_radar_info()
 {
   namespace ars548 = nebula::drivers::continental_ars548;
+  std::shared_lock lock_cfg(mtx_config_ptr_);
   radar_info_msg_.header.frame_id = config_ptr_->frame_id;
 
   auto make_field_info = [](
@@ -889,6 +924,7 @@ visualization_msgs::msg::MarkerArray ContinentalARS548DecoderWrapper::convert_to
   }};
 
   std::unordered_set<int> current_ids;
+  std::shared_lock lock_cfg(mtx_config_ptr_);
 
   radar_msgs::msg::RadarTrack track_msg;
   for (const auto & object : msg.objects) {

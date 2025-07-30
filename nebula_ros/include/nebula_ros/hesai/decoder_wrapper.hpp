@@ -15,8 +15,9 @@
 #pragma once
 
 #include "nebula_decoders/nebula_decoders_hesai/hesai_driver.hpp"
+#include "nebula_ros/common/agnocast_wrapper/nebula_agnocast_wrapper.hpp"
 #include "nebula_ros/common/diagnostics/rate_bound_status.hpp"
-#include "nebula_ros/common/watchdog_timer.hpp"
+#include "nebula_ros/common/single_consumer_processor.hpp"
 #include "nebula_ros/hesai/diagnostics/functional_safety_diagnostic_task.hpp"
 #include "nebula_ros/hesai/diagnostics/packet_loss_diagnostic.hpp"
 
@@ -41,12 +42,16 @@ class HesaiDecoderWrapper
 {
 public:
   HesaiDecoderWrapper(
-    rclcpp::Node * const parent_node,
+    rclcpp::Node * parent_node,
     const std::shared_ptr<const nebula::drivers::HesaiSensorConfiguration> & config,
     const std::shared_ptr<const nebula::drivers::HesaiCalibrationConfigurationBase> & calibration,
     diagnostic_updater::Updater & diagnostic_updater, bool publish_packets);
 
-  void process_cloud_packet(std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg);
+  /// @brief Process a cloud packet and return metadata
+  /// @param packet_msg The packet to process
+  /// @return Expected containing metadata on success, or decode error on failure
+  nebula::util::expected<drivers::PacketMetadata, drivers::DecodeError> process_cloud_packet(
+    std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg);
 
   void on_pointcloud_decoded(const drivers::NebulaPointCloudPtr & pointcloud, double timestamp_s);
 
@@ -61,8 +66,8 @@ public:
 
 private:
   void publish_cloud(
-    std::unique_ptr<sensor_msgs::msg::PointCloud2> pointcloud,
-    const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr & publisher);
+    NEBULA_MESSAGE_UNIQUE_PTR(sensor_msgs::msg::PointCloud2) && pointcloud,
+    const NEBULA_PUBLISHER_PTR(sensor_msgs::msg::PointCloud2) & publisher);
 
   /// @brief Convert seconds to chrono::nanoseconds
   /// @param seconds
@@ -107,7 +112,7 @@ private:
 
   std::pair<
     std::shared_ptr<drivers::point_filters::BlockageMaskPlugin>,
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr>
+    NEBULA_PUBLISHER_PTR(sensor_msgs::msg::Image)>
   initialize_blockage_mask_plugin();
 
   std::shared_ptr<drivers::HesaiDriver> initialize_driver(
@@ -124,19 +129,19 @@ private:
   std::shared_ptr<drivers::HesaiDriver> driver_ptr_;
   std::mutex mtx_driver_ptr_;
 
-  rclcpp::Publisher<pandar_msgs::msg::PandarScan>::SharedPtr packets_pub_;
   pandar_msgs::msg::PandarScan::UniquePtr current_scan_msg_;
+  rclcpp::Publisher<pandar_msgs::msg::PandarScan>::SharedPtr packets_pub_;
+  std::optional<SingleConsumerProcessor<pandar_msgs::msg::PandarScan::UniquePtr>>
+    packets_pub_thread_;
 
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr nebula_points_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aw_points_ex_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aw_points_base_pub_;
+  NEBULA_PUBLISHER_PTR(sensor_msgs::msg::PointCloud2) nebula_points_pub_;
+  NEBULA_PUBLISHER_PTR(sensor_msgs::msg::PointCloud2) aw_points_ex_pub_;
+  NEBULA_PUBLISHER_PTR(sensor_msgs::msg::PointCloud2) aw_points_base_pub_;
 
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr blockage_mask_pub_;
+  NEBULA_PUBLISHER_PTR(sensor_msgs::msg::Image) blockage_mask_pub_;
 
   custom_diagnostic_tasks::RateBoundStatus publish_diagnostic_;
   std::optional<FunctionalSafetyDiagnosticTask> functional_safety_diagnostic_;
   std::optional<PacketLossDiagnosticTask> packet_loss_diagnostic_;
-
-  std::shared_ptr<WatchdogTimer> cloud_watchdog_;
 };
 }  // namespace nebula::ros
