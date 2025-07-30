@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="sensor_model">
+  <arg name="sensor_model" default="Helios">
     <choice value="Helios" />
     <choice value="Bpearl" />
   </arg>

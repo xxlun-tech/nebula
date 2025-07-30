@@ -179,7 +179,7 @@ void RobosenseRosWrapper::receive_info_packet_callback(std::vector<uint8_t> & pa
         get_logger(), *get_clock(), 1000, "Could not publish info packet: size unsupported");
     } else {
       std::copy(packet.cbegin(), packet.cend(), info_packet.packet.data.begin());
-      info_packet.packet.stamp = now();
+      info_packet.packet.stamp = this->get_clock()->now();
       info_packets_pub_->publish(info_packet);
     }
   }

@@ -250,17 +250,19 @@ public:
 
       bool scan_completed = check_scan_completed(current_azimuth);
       if (scan_completed) {
+        output_pc_->clear();
         std::swap(decode_pc_, output_pc_);
-        decode_pc_->clear();
         has_scanned_ = true;
         output_scan_timestamp_ns_ = decode_scan_timestamp_ns_;
 
         // A new scan starts within the current packet, so the new scan's timestamp must be
         // calculated as the packet timestamp plus the lowest time offset of any point in the
         // remainder of the packet
-        decode_scan_timestamp_ns_ =
-          robosense_packet::get_timestamp_ns(packet_, sensor_configuration_->use_sensor_time) +
-          sensor_.get_earliest_point_time_offset_for_block(block_id, sensor_configuration_);
+        int offset = sensor_.get_earliest_point_time_offset_for_block(block_id, sensor_configuration_);
+        decode_scan_timestamp_ns_ = robosense_packet::get_timestamp_ns(packet_, sensor_configuration_->use_sensor_time) + offset;
+        if (sensor_configuration_->use_sensor_time) {
+          output_scan_timestamp_ns_ -= offset;
+        }
       }
 
       convert_returns(block_id, n_returns);
