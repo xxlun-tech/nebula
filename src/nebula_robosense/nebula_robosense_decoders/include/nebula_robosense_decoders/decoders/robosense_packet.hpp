@@ -18,6 +18,7 @@
 
 #include <boost/endian/buffers.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
