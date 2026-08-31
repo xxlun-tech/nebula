@@ -11,6 +11,11 @@ endif()
 if("$ENV{ENABLE_AGNOCAST}" AND NOT agnocast_components_FOUND)
   message(FATAL_ERROR "agnocast_components is required when Agnocast is enabled")
 endif()
+if("$ENV{ENABLE_AGNOCAST}" AND NOT agnocast_cie_thread_configurator_FOUND)
+  message(
+    FATAL_ERROR
+      "agnocast_cie_thread_configurator is required when Agnocast is enabled")
+endif()
 
 # Hesai
 add_library(
@@ -47,13 +52,19 @@ if("$ENV{ENABLE_AGNOCAST}")
   message(STATUS "Agnocast support is enabled")
   ament_target_dependencies(hesai_ros_wrapper PUBLIC agnocastlib)
   add_definitions(-DUSE_AGNOCAST_ENABLED)
+  # Used only by nebula_core_ros/cie_thread_factory.hpp, whose Agnocast branch
+  # is compiled into this package's translation units; not part of the exported
+  # interface.
+  target_link_libraries(
+    hesai_ros_wrapper
+    PRIVATE agnocast_cie_thread_configurator::agnocast_thread_configurator)
 endif()
 
 if("$ENV{ENABLE_AGNOCAST}")
   agnocast_components_register_node(
     hesai_ros_wrapper PLUGIN "HesaiRosWrapper"
     EXECUTABLE hesai_ros_wrapper_node
-    EXECUTOR CallbackIsolatedAgnocastExecutor)
+    EXECUTOR AgnocastOnlyCallbackIsolatedExecutor)
 else()
   rclcpp_components_register_node(hesai_ros_wrapper PLUGIN "HesaiRosWrapper"
                                   EXECUTABLE hesai_ros_wrapper_node)
